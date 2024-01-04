@@ -1,0 +1,71 @@
+#!/usr/bin/env ruby
+require 'bundler/inline'
+require 'Date'
+
+gemfile do
+  source 'https://rubygems.org'
+  gem "google_drive"
+end
+
+
+# CRON: */1 * * * * cd /Users/danella/Documents/Projects/speed-monitor && rake
+# https://www.twilio.com/blog/2017/03/google-spreadsheets-ruby.html
+
+def run_speed_test
+  results = `speedtest-cli`
+  split_output = results.split
+
+  pre_provider_index = split_output.index { |item| item == 'from' }
+  provider_start_index = pre_provider_index + 1
+  provider = split_output[provider_start_index..(provider_start_index + 1)].join(' ').sub('...', '')
+
+  pre_download_speed_index = split_output.index { |item| item == 'Download:' }
+  download_speed_index = pre_download_speed_index + 1
+  down = split_output[download_speed_index]
+
+  pre_upload_speed_index = split_output.index { |item| item == 'Upload:' }
+  upload_speed_index = pre_upload_speed_index + 1
+  up = split_output[upload_speed_index]
+
+  pre_hosting_index = split_output.index { |item| item == 'by' }
+  hosting_start_index = pre_hosting_index + 1
+
+  end_hosting_index = split_output.index { |item| item == 'km]:' }
+  host = split_output[hosting_start_index..end_hosting_index].join(' ').chop
+
+  ping_index = end_hosting_index + 1
+  ping = split_output[ping_index]
+
+  {
+    :up => up,
+    :down => down,
+    :host => host,
+    :provider => provider,
+    :ping => ping
+  }
+end
+
+def log_current_speed
+  run_at = Time.now.getutc
+  results = run_speed_test
+  completed_at = Time.now.getutc
+  run_time = completed_at - run_at
+
+  session = GoogleDrive::Session.from_service_account_key("client_secret.json")
+  spreadsheet = session.spreadsheet_by_title("Speed Test Results")
+  worksheet = spreadsheet.worksheets.first
+
+  worksheet.insert_rows(2, [
+    [
+      run_at,
+      results[:down],
+      results[:up],
+      results[:provider],
+      results[:ping],
+      results[:host],
+      run_time
+  ]])
+  worksheet.save
+end
+
+log_current_speed
